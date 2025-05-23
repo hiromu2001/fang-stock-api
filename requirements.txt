@@ -3,4 +3,4 @@ uvicorn
 pandas
 lightgbm
 scikit-learn
-requestsd]
+requests
