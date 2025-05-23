@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pandas
+lightgbm
+scikit-learn
+requestsd]
