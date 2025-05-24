@@ -1,10 +1,10 @@
 from fastapi import FastAPI
-import pandas as pd
 import yfinance as yf
+import pandas as pd
 import lightgbm as lgb
-from datetime import datetime
-from sklearn.metrics import mean_squared_error
 import numpy as np
+from sklearn.metrics import mean_squared_error
+from datetime import datetime
 
 app = FastAPI()
 
@@ -18,11 +18,9 @@ def predict_all_stocks():
     for symbol in fang_symbols:
         try:
             # データ取得
-            df = yf.download(symbol, period="60d", interval="1d")
-            df = df.sort_index()
-
+            df = yf.download(symbol, period="1y", interval="1d")
             if df.empty:
-                messages.append(f"{symbol}: データ取得エラー（データが空）")
+                messages.append(f"{symbol}: データ取得エラー")
                 continue
 
             df["close"] = df["Close"]
@@ -36,10 +34,16 @@ def predict_all_stocks():
             X_train, X_val = X[:split_idx], X[split_idx:]
             y_train, y_val = y[:split_idx], y[split_idx:]
 
-            model = lgb.LGBMRegressor(n_estimators=100)
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_val)
+            # LightGBMモデル作成（過学習対策: early_stopping_roundsあり）
+            model = lgb.LGBMRegressor(n_estimators=1000)  # 学習回数多め
+            model.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                early_stopping_rounds=50,
+                verbose=False
+            )
 
+            y_pred = model.predict(X_val)
             val_error = np.sqrt(mean_squared_error(y_val, y_pred))
 
             last_close = df["close"].iloc[-1]
@@ -49,14 +53,14 @@ def predict_all_stocks():
 
             messages.append(
                 f"{symbol}: 現在 {last_close:.2f} → 予測 {pred_close:.2f} {trend} "
-                f"(誤差: {val_error:.2f}, 学習回数: {model.n_estimators_})"
+                f"(RMSE: {val_error:.2f}, 学習回数: {model.best_iteration_})"
             )
 
             total_last_close += last_close
             total_pred_close += pred_close
 
         except Exception as e:
-            messages.append(f"{symbol}: エラー発生 - {str(e)}")
+            messages.append(f"{symbol}: エラー発生 ({str(e)})")
 
     overall_trend = "↑" if total_pred_close > total_last_close else "↓"
     messages.append(
