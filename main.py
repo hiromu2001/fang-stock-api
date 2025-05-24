@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 import yfinance as yf
 import pandas as pd
 import lightgbm as lgb
@@ -22,32 +23,27 @@ def predict_all_stocks():
                 messages.append(f"{symbol}: データが少なすぎるか取得できません")
                 continue
 
-            # カラム名がMultiIndexの場合、フラット化
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = ['_'.join(col).strip() for col in df.columns.values]
 
-            # Close列を使用
             close_cols = [col for col in df.columns if 'close' in col.lower()]
             if not close_cols:
                 messages.append(f"{symbol}: Close列が見つかりません")
                 continue
 
-            close_col = close_cols[0]  # 最初のClose列を選択
+            close_col = close_cols[0]
             df = df[[close_col]].rename(columns={close_col: 'close'})
 
-            # 特徴量作成
             df['close_lag1'] = df['close'].shift(1)
             df = df.dropna()
 
             X = df[['close_lag1']]
             y = df['close']
 
-            # データ分割
             split_idx = int(len(df) * 0.8)
             X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
             y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
 
-            # LightGBMモデル
             model = lgb.LGBMRegressor(n_estimators=1000, random_state=0, verbosity=-1)
 
             model.fit(
@@ -58,9 +54,10 @@ def predict_all_stocks():
             )
 
             y_pred = model.predict(X_val)
-            val_error = np.sqrt(mean_squared_error(y_val, y_pred))
+            val_rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+            avg_price = y_val.mean()
+            val_error_percent = (val_rmse / avg_price) * 100 if avg_price != 0 else 0
 
-            # 予測
             last_close = df['close'].iloc[-1]
             last_close_df = pd.DataFrame([[last_close]], columns=['close_lag1'])
             pred_close = model.predict(last_close_df)[0]
@@ -68,7 +65,7 @@ def predict_all_stocks():
 
             messages.append(
                 f"{symbol}: 現在 {last_close:.2f} → 予測 {pred_close:.2f} {trend} "
-                f"(誤差: {val_error:.2f}, 学習回数: {model.best_iteration_})"
+                f"(誤差: {val_error_percent:.2f}%, 学習回数: {model.best_iteration_})"
             )
 
             total_last_close += last_close
@@ -84,7 +81,7 @@ def predict_all_stocks():
 
     return "\n".join(messages)
 
-@app.get("/predict_all")
+@app.get("/predict_all", response_class=PlainTextResponse)
 def get_predictions():
     result = predict_all_stocks()
-    return {"message": result}
+    return result
