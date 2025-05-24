@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.responses import PlainTextResponse
 import yfinance as yf
 import pandas as pd
 import lightgbm as lgb
@@ -8,80 +7,61 @@ import numpy as np
 
 app = FastAPI()
 
-fang_symbols = ["AAPL", "AMZN", "GOOGL", "META", "MSFT", "NFLX", "NVDA", "TSLA", "SNOW", "AMD"]
+@app.get("/predict/{symbol}")
+def predict_stock(symbol: str):
+    try:
+        # データ取得
+        df = yf.download(symbol, period="2y")
+        if df.empty:
+            return {"error": f"データが取得できませんでした: {symbol}"}
 
-def predict_all_stocks():
-    messages = []
-    total_last_close = 0
-    total_pred_close = 0
+        # 必要な列をシンプル化
+        df = df.reset_index()[['Date', 'Close']]
+        df = df.rename(columns={'Close': 'close'})
+        df['close_lag1'] = df['close'].shift(1)
+        df = df.dropna()
 
-    for symbol in fang_symbols:
-        try:
-            # データ取得
-            df = yf.download(symbol, period="1y", interval="1d", auto_adjust=True)
-            if df.empty or len(df) < 30:
-                messages.append(f"{symbol}: データが少なすぎるか取得できません")
-                continue
+        # 特徴量と目的変数
+        X = df[['close_lag1']]
+        y = df['close']
 
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = ['_'.join(col).strip() for col in df.columns.values]
+        # データ分割 (ホールドアウト)
+        split_idx = int(len(df) * 0.8)
+        X_train, X_val = X[:split_idx], X[split_idx:]
+        y_train, y_val = y[:split_idx], y[split_idx:]
 
-            close_cols = [col for col in df.columns if 'close' in col.lower()]
-            if not close_cols:
-                messages.append(f"{symbol}: Close列が見つかりません")
-                continue
+        # モデル学習（過学習対策あり）
+        model = lgb.LGBMRegressor(
+            n_estimators=5000,
+            learning_rate=0.01,
+            random_state=42
+        )
+        model.fit(
+            X_train, y_train,
+            eval_set=[(X_val, y_val)],
+            eval_metric='rmse',
+            callbacks=[lgb.early_stopping(stopping_rounds=50)]
+        )
 
-            close_col = close_cols[0]
-            df = df[[close_col]].rename(columns={close_col: 'close'})
+        # 予測
+        last_close = df['close'].iloc[-1]
+        X_pred = pd.DataFrame({'close_lag1': [last_close]})
+        pred_close = model.predict(X_pred)[0]
 
-            df['close_lag1'] = df['close'].shift(1)
-            df = df.dropna()
+        # 誤差（RMSE）
+        val_pred = model.predict(X_val)
+        rmse = np.sqrt(mean_squared_error(y_val, val_pred))
 
-            X = df[['close_lag1']]
-            y = df['close']
+        trend = "↑" if pred_close > last_close else "↓"
 
-            split_idx = int(len(df) * 0.8)
-            X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
-            y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+        return {
+            "symbol": symbol,
+            "現在の終値": round(last_close, 2),
+            "予測終値": round(pred_close, 2),
+            "方向": trend,
+            "RMSE（誤差）": round(rmse, 2),
+            "学習回数": model.best_iteration_
+        }
 
-            model = lgb.LGBMRegressor(n_estimators=1000, random_state=0, verbosity=-1)
-
-            model.fit(
-                X_train, y_train,
-                eval_set=[(X_val, y_val)],
-                eval_metric='rmse',
-                callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
-            )
-
-            y_pred = model.predict(X_val)
-            val_rmse = np.sqrt(mean_squared_error(y_val, y_pred))
-            avg_price = y_val.mean()
-            val_error_percent = (val_rmse / avg_price) * 100 if avg_price != 0 else 0
-
-            last_close = df['close'].iloc[-1]
-            last_close_df = pd.DataFrame([[last_close]], columns=['close_lag1'])
-            pred_close = model.predict(last_close_df)[0]
-            trend = "↑" if pred_close > last_close else "↓"
-
-            messages.append(
-                f"{symbol}: 現在 {last_close:.2f} → 予測 {pred_close:.2f} {trend} "
-                f"(誤差: {val_error_percent:.2f}%, 学習回数: {model.best_iteration_})"
-            )
-
-            total_last_close += last_close
-            total_pred_close += pred_close
-
-        except Exception as e:
-            messages.append(f"{symbol}: エラー発生 ({str(e)})")
-
-    overall_trend = "↑" if total_pred_close > total_last_close else "↓"
-    messages.append(
-        f"\nFANG+ Index Summary:\n現終値合計: {total_last_close:.2f}\n予測終値合計: {total_pred_close:.2f}\n方向: {overall_trend}"
-    )
-
-    return "\n".join(messages)
-
-@app.get("/predict_all", response_class=PlainTextResponse)
-def get_predictions():
-    result = predict_all_stocks()
-    return result
+    except Exception as e:
+        return {"error": str(e)}
