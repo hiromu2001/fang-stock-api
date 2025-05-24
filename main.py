@@ -25,10 +25,10 @@ def predict_all_stocks():
 
             df = df.reset_index()
             df["close"] = df["Close"]
-            df["close_lag1"] = df["close"].shift(1)
+            df["closelag1"] = df["close"].shift(1)
             df = df.dropna()
 
-            X = df[["close_lag1"]]
+            X = df[["closelag1"]]
             y = df["close"]
 
             split_idx = int(len(df) * 0.8)
@@ -50,7 +50,7 @@ def predict_all_stocks():
             val_error = np.sqrt(mean_squared_error(y_val, y_pred))
 
             last_close = df["close"].iloc[-1]
-            X_pred = pd.DataFrame({"close_lag1": [last_close]})
+            X_pred = pd.DataFrame({"closelag1": [last_close]})
             pred_close = model.predict(X_pred)[0]
             trend = "↑" if pred_close > last_close else "↓"
 
