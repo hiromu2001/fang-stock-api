@@ -4,3 +4,4 @@ pandas
 lightgbm
 scikit-learn
 requests
+yfinance
