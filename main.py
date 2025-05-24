@@ -20,29 +20,28 @@ def predict_all_stocks():
                 messages.append(f"{symbol}: データ取得エラー (データが空)")
                 continue
 
-            df = df.reset_index()
-            df = df[["Date", "Close"]].dropna()
+            df = df.reset_index()  # Dateをインデックスからカラムに戻す
+            df = df[["Date", "Close"]].copy()
             df["close_lag1"] = df["Close"].shift(1)
             df = df.dropna()
 
-            # デバッグ用: カラム確認
             print(f"==== {symbol} のカラム ====")
             print(df.columns)
 
-            # カラム名をシンプルにする
-            X = df[["close_lag1"]].copy()
-            y = df["Close"].copy()
+            # モデル作成
+            X = df[["close_lag1"]]
+            y = df["Close"]
 
             split_idx = int(len(df) * 0.8)
             X_train, X_val = X[:split_idx], X[split_idx:]
             y_train, y_val = y[:split_idx], y[split_idx:]
 
-            model = lgb.LGBMRegressor(n_estimators=1000)
+            model = lgb.LGBMRegressor(n_estimators=5000)
             model.fit(
                 X_train, y_train,
                 eval_set=[(X_val, y_val)],
                 eval_metric="rmse",
-                callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
+                callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)]
             )
 
             val_error = np.sqrt(np.mean((y_val - model.predict(X_val))**2))
