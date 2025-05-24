@@ -1,7 +1,7 @@
 fastapi
 uvicorn
+yfinance
+lightgbm
+scikit-learn
 pandas
 numpy
-lightgbm
-yfinance
-scikit-learn
