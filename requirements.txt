@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 pandas
-lightgbm
+numpy
 scikit-learn
-requests
+lightgbm
 yfinance
