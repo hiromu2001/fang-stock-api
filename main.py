@@ -14,16 +14,23 @@ def predict_stock(symbol: str):
         if df.empty or len(df) < 30:
             return {"error": f"データが少なすぎるか取得できませんでした: {symbol}"}
 
+        # カラム名がMultiIndexなら解除
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = ['_'.join(col).strip() for col in df.columns.values]
 
-        df = df.reset_index()[['Date', 'Close']]
-        df = df.rename(columns={'Close': 'close'})
+        # Close列 or Adj Close列を自動検出
+        close_cols = [col for col in df.columns if 'close' in col.lower()]
+        if not close_cols:
+            return {"error": f"Close列が見つかりません: {symbol}"}
+
+        close_col = close_cols[0]
+        df = df.reset_index()[['Date', close_col]]
+        df = df.rename(columns={close_col: 'close'})
+
         df['close_lag1'] = df['close'].shift(1)
         df = df.dropna()
 
         X = df[['close_lag1']]
-        # カラム名を完全に安全な名前にリネーム
         X.columns = [f"feature_{i}" for i in range(X.shape[1])]
         y = df['close']
 
