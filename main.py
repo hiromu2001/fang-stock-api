@@ -2,7 +2,6 @@ from fastapi import FastAPI
 import yfinance as yf
 import pandas as pd
 import lightgbm as lgb
-from datetime import datetime
 from sklearn.metrics import mean_squared_error
 import numpy as np
 
@@ -18,9 +17,9 @@ def predict_all_stocks():
     for symbol in fang_symbols:
         try:
             # データ取得
-            df = yf.download(symbol, period="1y", interval="1d")
-            if df.empty:
-                messages.append(f"{symbol}: データ取得エラー")
+            df = yf.download(symbol, period="1y", interval="1d", auto_adjust=True)
+            if df.empty or len(df) < 30:
+                messages.append(f"{symbol}: データが少なすぎるか取得できません")
                 continue
 
             df = df[['Close']].rename(columns={'Close': 'close'})
@@ -36,7 +35,7 @@ def predict_all_stocks():
             y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
 
             # LightGBM学習
-            model = lgb.LGBMRegressor(n_estimators=1000, random_state=0)
+            model = lgb.LGBMRegressor(n_estimators=1000, random_state=0, verbosity=-1)
 
             model.fit(
                 X_train, y_train,
@@ -49,7 +48,8 @@ def predict_all_stocks():
             val_error = np.sqrt(mean_squared_error(y_val, y_pred))
 
             last_close = df['close'].iloc[-1]
-            pred_close = model.predict([[last_close]])[0]
+            last_close_df = pd.DataFrame([[last_close]], columns=['close_lag1'])
+            pred_close = model.predict(last_close_df)[0]
             trend = "↑" if pred_close > last_close else "↓"
 
             messages.append(
