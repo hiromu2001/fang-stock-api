@@ -2,7 +2,7 @@ from fastapi import FastAPI
 import yfinance as yf
 import pandas as pd
 import lightgbm as lgb
-from sklearn.model_selection import train_test_split
+from datetime import datetime
 from sklearn.metrics import mean_squared_error
 import numpy as np
 
@@ -17,12 +17,13 @@ def predict_all_stocks():
 
     for symbol in fang_symbols:
         try:
-            df = yf.download(symbol, period="1y", interval="1d")
+            # データ取得
+            df = yf.download(symbol, period="60d", interval="1d")
             if df.empty:
                 messages.append(f"{symbol}: データ取得エラー")
                 continue
 
-            df = df.sort_index()
+            df = df.reset_index()
             df["close"] = df["Close"]
             df["close_lag1"] = df["close"].shift(1)
             df = df.dropna()
@@ -30,14 +31,19 @@ def predict_all_stocks():
             X = df[["close_lag1"]]
             y = df["close"]
 
-            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, shuffle=False)
+            split_idx = int(len(df) * 0.8)
+            X_train, X_val = X[:split_idx], X[split_idx:]
+            y_train, y_val = y[:split_idx], y[split_idx:]
 
             model = lgb.LGBMRegressor(n_estimators=1000)
+
+            # early stopping コールバック
+            early_stopping = lgb.early_stopping(stopping_rounds=50, verbose=False)
+
             model.fit(
                 X_train, y_train,
                 eval_set=[(X_val, y_val)],
-                early_stopping_rounds=50,
-                verbose=False
+                callbacks=[early_stopping]
             )
 
             y_pred = model.predict(X_val)
@@ -58,7 +64,6 @@ def predict_all_stocks():
 
         except Exception as e:
             messages.append(f"{symbol}: エラー発生 ({str(e)})")
-            continue
 
     overall_trend = "↑" if total_pred_close > total_last_close else "↓"
     messages.append(
