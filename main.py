@@ -22,7 +22,6 @@ def predict_all_stocks():
 
             df = df.reset_index()
             df = df[["Date", "Close"]].dropna()
-
             df["close_lag1"] = df["Close"].shift(1)
             df = df.dropna()
 
@@ -30,8 +29,9 @@ def predict_all_stocks():
             print(f"==== {symbol} のカラム ====")
             print(df.columns)
 
-            X = df[["close_lag1"]]
-            y = df["Close"]
+            # カラム名をシンプルにする
+            X = df[["close_lag1"]].copy()
+            y = df["Close"].copy()
 
             split_idx = int(len(df) * 0.8)
             X_train, X_val = X[:split_idx], X[split_idx:]
@@ -42,8 +42,7 @@ def predict_all_stocks():
                 X_train, y_train,
                 eval_set=[(X_val, y_val)],
                 eval_metric="rmse",
-                early_stopping_rounds=50,
-                verbose=False
+                callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)]
             )
 
             val_error = np.sqrt(np.mean((y_val - model.predict(X_val))**2))
