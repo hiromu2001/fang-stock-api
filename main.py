@@ -22,6 +22,7 @@ def predict_all_stocks():
         url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={API_KEY}"
         response = requests.get(url)
         data = response.json()
+        print(data)
         time_series = data.get("Time Series (Daily)")
 
         if not time_series:
