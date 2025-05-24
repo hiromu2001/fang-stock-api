@@ -17,17 +17,17 @@ def predict_all_stocks():
 
     for symbol in fang_symbols:
         try:
-            # データ取得
             df = yf.download(symbol, period="60d", interval="1d")
             if df.empty:
                 messages.append(f"{symbol}: データ取得エラー")
                 continue
 
-            df = df.reset_index()
-            df["close"] = df["Close"]
+            # 必要な列だけ残す
+            df = df[["Close"]].rename(columns={"Close": "close"})
             df["closelag1"] = df["close"].shift(1)
             df = df.dropna()
 
+            # 必ず X は「closelag1」だけにする
             X = df[["closelag1"]]
             y = df["close"]
 
@@ -37,7 +37,6 @@ def predict_all_stocks():
 
             model = lgb.LGBMRegressor(n_estimators=1000)
 
-            # early stopping コールバック
             early_stopping = lgb.early_stopping(stopping_rounds=50, verbose=False)
 
             model.fit(
