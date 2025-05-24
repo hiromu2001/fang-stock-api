@@ -22,7 +22,20 @@ def predict_all_stocks():
                 messages.append(f"{symbol}: データが少なすぎるか取得できません")
                 continue
 
-            df = df[['Close']].rename(columns={'Close': 'close'})
+            # カラム名がMultiIndexの場合、フラット化
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = ['_'.join(col).strip() for col in df.columns.values]
+
+            # Close列を使用
+            close_cols = [col for col in df.columns if 'close' in col.lower()]
+            if not close_cols:
+                messages.append(f"{symbol}: Close列が見つかりません")
+                continue
+
+            close_col = close_cols[0]  # 最初のClose列を選択
+            df = df[[close_col]].rename(columns={close_col: 'close'})
+
+            # 特徴量作成
             df['close_lag1'] = df['close'].shift(1)
             df = df.dropna()
 
@@ -34,7 +47,7 @@ def predict_all_stocks():
             X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
             y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
 
-            # LightGBM学習
+            # LightGBMモデル
             model = lgb.LGBMRegressor(n_estimators=1000, random_state=0, verbosity=-1)
 
             model.fit(
@@ -47,6 +60,7 @@ def predict_all_stocks():
             y_pred = model.predict(X_val)
             val_error = np.sqrt(mean_squared_error(y_val, y_pred))
 
+            # 予測
             last_close = df['close'].iloc[-1]
             last_close_df = pd.DataFrame([[last_close]], columns=['close_lag1'])
             pred_close = model.predict(last_close_df)[0]
