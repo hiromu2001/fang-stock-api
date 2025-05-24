@@ -2,9 +2,9 @@ from fastapi import FastAPI
 import yfinance as yf
 import pandas as pd
 import lightgbm as lgb
-import numpy as np
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
-from datetime import datetime
+import numpy as np
 
 app = FastAPI()
 
@@ -17,12 +17,12 @@ def predict_all_stocks():
 
     for symbol in fang_symbols:
         try:
-            # データ取得
             df = yf.download(symbol, period="1y", interval="1d")
             if df.empty:
                 messages.append(f"{symbol}: データ取得エラー")
                 continue
 
+            df = df.sort_index()
             df["close"] = df["Close"]
             df["close_lag1"] = df["close"].shift(1)
             df = df.dropna()
@@ -30,12 +30,9 @@ def predict_all_stocks():
             X = df[["close_lag1"]]
             y = df["close"]
 
-            split_idx = int(len(df) * 0.8)
-            X_train, X_val = X[:split_idx], X[split_idx:]
-            y_train, y_val = y[:split_idx], y[split_idx:]
+            X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, shuffle=False)
 
-            # LightGBMモデル作成（過学習対策: early_stopping_roundsあり）
-            model = lgb.LGBMRegressor(n_estimators=1000)  # 学習回数多め
+            model = lgb.LGBMRegressor(n_estimators=1000)
             model.fit(
                 X_train, y_train,
                 eval_set=[(X_val, y_val)],
@@ -53,7 +50,7 @@ def predict_all_stocks():
 
             messages.append(
                 f"{symbol}: 現在 {last_close:.2f} → 予測 {pred_close:.2f} {trend} "
-                f"(RMSE: {val_error:.2f}, 学習回数: {model.best_iteration_})"
+                f"(誤差: {val_error:.2f}, 学習回数: {model.best_iteration_})"
             )
 
             total_last_close += last_close
@@ -61,6 +58,7 @@ def predict_all_stocks():
 
         except Exception as e:
             messages.append(f"{symbol}: エラー発生 ({str(e)})")
+            continue
 
     overall_trend = "↑" if total_pred_close > total_last_close else "↓"
     messages.append(
