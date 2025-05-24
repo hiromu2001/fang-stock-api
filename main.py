@@ -1,10 +1,8 @@
 from fastapi import FastAPI
-import yfinance as yf
 import pandas as pd
-import lightgbm as lgb
-from datetime import datetime
-from sklearn.metrics import mean_squared_error
 import numpy as np
+import yfinance as yf
+import lightgbm as lgb
 
 app = FastAPI()
 
@@ -17,39 +15,41 @@ def predict_all_stocks():
 
     for symbol in fang_symbols:
         try:
-            df = yf.download(symbol, period="60d", interval="1d")
+            df = yf.download(symbol, period="2y", interval="1d", progress=False)
             if df.empty:
-                messages.append(f"{symbol}: データ取得エラー")
+                messages.append(f"{symbol}: データ取得エラー (データが空)")
                 continue
 
-            # 必要な列だけ残す
-            df = df[["Close"]].rename(columns={"Close": "close"})
-            df["closelag1"] = df["close"].shift(1)
+            df = df.reset_index()
+            df = df[["Date", "Close"]].dropna()
+
+            df["close_lag1"] = df["Close"].shift(1)
             df = df.dropna()
 
-            # 必ず X は「closelag1」だけにする
-            X = df[["closelag1"]]
-            y = df["close"]
+            # デバッグ用: カラム確認
+            print(f"==== {symbol} のカラム ====")
+            print(df.columns)
+
+            X = df[["close_lag1"]]
+            y = df["Close"]
 
             split_idx = int(len(df) * 0.8)
             X_train, X_val = X[:split_idx], X[split_idx:]
             y_train, y_val = y[:split_idx], y[split_idx:]
 
             model = lgb.LGBMRegressor(n_estimators=1000)
-
-            early_stopping = lgb.early_stopping(stopping_rounds=50, verbose=False)
-
             model.fit(
                 X_train, y_train,
                 eval_set=[(X_val, y_val)],
-                callbacks=[early_stopping]
+                eval_metric="rmse",
+                early_stopping_rounds=50,
+                verbose=False
             )
 
-            y_pred = model.predict(X_val)
-            val_error = np.sqrt(mean_squared_error(y_val, y_pred))
+            val_error = np.sqrt(np.mean((y_val - model.predict(X_val))**2))
 
-            last_close = df["close"].iloc[-1]
-            X_pred = pd.DataFrame({"closelag1": [last_close]})
+            last_close = df["Close"].iloc[-1]
+            X_pred = pd.DataFrame({"close_lag1": [last_close]})
             pred_close = model.predict(X_pred)[0]
             trend = "↑" if pred_close > last_close else "↓"
 
