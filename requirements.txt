@@ -1,7 +1,7 @@
+# requirements.txt
 fastapi
+lightgbm
+numpy
+pandas
 uvicorn
 yfinance
-pandas
-lightgbm
-scikit-learn
-numpy
