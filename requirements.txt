@@ -2,6 +2,6 @@ fastapi
 uvicorn
 pandas
 numpy
-scikit-learn
 lightgbm
 yfinance
+scikit-learn
