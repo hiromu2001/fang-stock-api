@@ -4,6 +4,7 @@ import pandas as pd
 import lightgbm as lgb
 from sklearn.metrics import mean_squared_error
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 app = FastAPI()
 
@@ -15,7 +16,7 @@ def predict_stock(symbol: str):
         if df.empty or len(df) < 60:
             return {"error": f"データが少なすぎるか取得できませんでした: {symbol}"}
 
-        # カラム名がMultiIndexの場合は解除
+        # MultiIndexの解除
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = ['_'.join(col).strip() for col in df.columns.values]
 
@@ -33,7 +34,12 @@ def predict_stock(symbol: str):
         df = df.reset_index()[['Date', close_col, volume_col]]
         df = df.rename(columns={close_col: 'close', volume_col: 'volume'})
 
-        # 特徴量作成
+        # 対数変換 (出来高・価格×出来高)
+        df['log_volume'] = np.log1p(df['volume'])  # log1p(x) = log(1+x)
+        df['price_volume'] = df['close'] * df['volume']
+        df['log_price_volume'] = np.log1p(df['price_volume'])
+
+        # その他の特徴量
         df['close_lag1'] = df['close'].shift(1)
         df['close_lag2'] = df['close'].shift(2)
         df['ma5'] = df['close'].rolling(5).mean()
@@ -42,19 +48,23 @@ def predict_stock(symbol: str):
         df['volume_lag1'] = df['volume'].shift(1)
         df['volume_ma5'] = df['volume'].rolling(5).mean()
         df['volatility'] = df['return'].rolling(5).std()
-        df['volume_return'] = df['volume'].pct_change()
         df['volatility_10'] = df['return'].rolling(10).std()
-        df['price_volume'] = df['close'] * df['volume']
 
         # 欠損値を削除
         df = df.dropna()
 
-        # 特徴量と目的変数
+        # 標準化
+        scaler = StandardScaler()
+        scaled_features = scaler.fit_transform(df[['return', 'volatility', 'volatility_10']])
+        df[['return_scaled', 'volatility_scaled', 'volatility_10_scaled']] = scaled_features
+
+        # 特徴量リスト
         feature_cols = [
-            'close_lag1', 'close_lag2', 'ma5', 'ma10', 'return',
-            'volume_lag1', 'volume_ma5', 'volatility',
-            'volume_return', 'volatility_10', 'price_volume'
+            'close_lag1', 'close_lag2', 'ma5', 'ma10', 'return_scaled',
+            'volume_lag1', 'volume_ma5', 'volatility_scaled', 'volatility_10_scaled',
+            'log_volume', 'log_price_volume'
         ]
+
         X = df[feature_cols].copy()
         X.columns = [f"feature_{i}" for i in range(X.shape[1])]
         y = df['close']
