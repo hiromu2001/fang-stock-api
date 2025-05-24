@@ -12,14 +12,14 @@ def predict_stock(symbol: str):
     try:
         # データ取得
         df = yf.download(symbol, period="2y")
-        if df.empty or len(df) < 60:  # データが少なすぎる場合は終了
+        if df.empty or len(df) < 60:
             return {"error": f"データが少なすぎるか取得できませんでした: {symbol}"}
 
         # カラム名がMultiIndexの場合は解除
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = ['_'.join(col).strip() for col in df.columns.values]
 
-        # 必要な列を抽出（Close or Adj Closeを探す）
+        # 必要な列を抽出
         close_cols = [col for col in df.columns if 'close' in col.lower()]
         volume_cols = [col for col in df.columns if 'volume' in col.lower()]
         if not close_cols:
@@ -42,12 +42,19 @@ def predict_stock(symbol: str):
         df['volume_lag1'] = df['volume'].shift(1)
         df['volume_ma5'] = df['volume'].rolling(5).mean()
         df['volatility'] = df['return'].rolling(5).std()
+        df['volume_return'] = df['volume'].pct_change()
+        df['volatility_10'] = df['return'].rolling(10).std()
+        df['price_volume'] = df['close'] * df['volume']
 
         # 欠損値を削除
         df = df.dropna()
 
         # 特徴量と目的変数
-        feature_cols = ['close_lag1', 'close_lag2', 'ma5', 'ma10', 'return', 'volume_lag1', 'volume_ma5', 'volatility']
+        feature_cols = [
+            'close_lag1', 'close_lag2', 'ma5', 'ma10', 'return',
+            'volume_lag1', 'volume_ma5', 'volatility',
+            'volume_return', 'volatility_10', 'price_volume'
+        ]
         X = df[feature_cols].copy()
         X.columns = [f"feature_{i}" for i in range(X.shape[1])]
         y = df['close']
