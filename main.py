@@ -1,8 +1,8 @@
-from fastapi import FastAPI
-import pandas as pd
-import numpy as np
 import yfinance as yf
+import pandas as pd
 import lightgbm as lgb
+import numpy as np
+from fastapi import FastAPI
 
 app = FastAPI()
 
@@ -15,20 +15,17 @@ def predict_all_stocks():
 
     for symbol in fang_symbols:
         try:
-            df = yf.download(symbol, period="2y", interval="1d", progress=False)
+            df = yf.download(symbol, period="1y", interval="1d")
             if df.empty:
-                messages.append(f"{symbol}: データ取得エラー (データが空)")
+                messages.append(f"{symbol}: データ取得エラー")
                 continue
 
-            df = df.reset_index()  # Dateをインデックスからカラムに戻す
-            df = df[["Date", "Close"]].copy()
+            # MultiIndex解除
+            df.columns = [col if isinstance(col, str) else col[0] for col in df.columns]
+
             df["close_lag1"] = df["Close"].shift(1)
             df = df.dropna()
 
-            print(f"==== {symbol} のカラム ====")
-            print(df.columns)
-
-            # モデル作成
             X = df[["close_lag1"]]
             y = df["Close"]
 
@@ -36,15 +33,11 @@ def predict_all_stocks():
             X_train, X_val = X[:split_idx], X[split_idx:]
             y_train, y_val = y[:split_idx], y[split_idx:]
 
-            model = lgb.LGBMRegressor(n_estimators=5000)
-            model.fit(
-                X_train, y_train,
-                eval_set=[(X_val, y_val)],
-                eval_metric="rmse",
-                callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False)]
-            )
+            model = lgb.LGBMRegressor(n_estimators=1000)
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], early_stopping_rounds=50, verbose=False)
 
-            val_error = np.sqrt(np.mean((y_val - model.predict(X_val))**2))
+            y_pred = model.predict(X_val)
+            val_error = np.sqrt(((y_val - y_pred) ** 2).mean())
 
             last_close = df["Close"].iloc[-1]
             X_pred = pd.DataFrame({"close_lag1": [last_close]})
@@ -52,15 +45,15 @@ def predict_all_stocks():
             trend = "↑" if pred_close > last_close else "↓"
 
             messages.append(
-                f"{symbol}: 現在 {last_close:.2f} → 予測 {pred_close:.2f} {trend} "
-                f"(誤差: {val_error:.2f}, 学習回数: {model.best_iteration_})"
+                f"{symbol}: 現在 {last_close:.2f} → 予測 {pred_close:.2f} {trend} (誤差: {val_error:.2f}, 学習回数: {model.best_iteration_})"
             )
 
             total_last_close += last_close
             total_pred_close += pred_close
 
         except Exception as e:
-            messages.append(f"{symbol}: エラー発生 ({str(e)})")
+            messages.append(f"{symbol}: エラー発生 ({e})")
+            continue
 
     overall_trend = "↑" if total_pred_close > total_last_close else "↓"
     messages.append(
